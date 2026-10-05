@@ -1,0 +1,8 @@
+# GPT-6 Sol — Argolink
+
+- Model: gpt-6-sol
+- Intent: agent tool loop and response handling
+- Model page: https://argolink.io/gh-agent-tool-loop-guide
+- API docs: https://argolink.io/gh-unified-api-docs
+- Examples: examples/request.sh, examples/client.py
+- Contract: docs/model-contract.md
