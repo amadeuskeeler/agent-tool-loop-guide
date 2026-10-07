@@ -1,43 +1,25 @@
-# GPT-6 Sol — Agent Tool Loop And Response Handling
+# Agent tool-call loop guide
 
-Argolink-focused agent tool loop and response handling for GPT-6 Sol. This repository is a self-contained integration reference: it explains the request shape, the asynchronous lifecycle where applicable, safe retries, and the failure states that matter in production.
+This cookbook explains the state machine behind a tool-enabled text agent. The small runner keeps conversation items, dispatches named functions, appends tool results, and stops at a message or a maximum turn count. **[ArgoLink](https://argolink.io/gh-agent-tool-loop-guide) is a compatible endpoint example, not an affiliation.** Last checked: 2026-10-07.
 
-[GPT-6 Sol model page →](https://argolink.io/gh-agent-tool-loop-guide) · [Argolink API docs →](https://argolink.io/gh-unified-api-docs)
+## The loop
 
-The model page is authoritative for live availability, pricing, limits, and fields. This repository gives the workflow a searchable home; it does not invent a second model catalog.
+A Responses or chat-completions client first sends the user message and tool schemas. If the model returns no tool calls, return its text. If it returns calls, validate each name and arguments, execute approved functions, append one result per call, and send the complete history back. Repeat until no calls remain or the maximum iteration count is reached. The runner in loop/runner.py is offline and intentionally takes pre-recorded turns so the state machine can be tested without a model.
 
-## What is inside
+Parallel calls are safe only when tools are independent. A tool that writes a file, charges an account, or mutates a database needs a human or idempotency gate. Preserve the tool call ID in the real implementation so the model can associate the result correctly. Do not swallow exceptions; return a typed error result and stop when the error is unsafe to recover.
 
-- `docs/model-contract.md`: model-specific facts checked against the current Argolink catalog.
-- `docs/workflow.md`: the intent behind this repository and the decision points that prevent accidental resubmission.
-- `examples/request.sh` and `examples/client.py`: safe, runnable request examples using `ARGOLINK_API_KEY`.
-- `tests/test_repository.py`: offline checks for the public contract and examples.
-- `ARGOLINK.md`: public-boundary rules for contributors.
+## Responses and chat
 
-## Quick start
+Responses and chat-completions use different response item shapes. Build an adapter at the boundary and keep the core loop's ToolCall/ToolResult objects stable. Verify whether the selected model supports tools and reasoning together. The ArgoLink base is https://argolink.io/v1; the model page and catalog decide endpoint, model ID, effort, and tool support. A User-Agent belongs on every urllib request.
 
-Set the key only in your shell or secret manager, then run the example:
+## Limits and safety
 
-```bash
-export ARGOLINK_API_KEY='your-key'
-./examples/request.sh
-```
+Set max turns, maximum tool arguments, a wall-clock deadline, and a cost budget. Allowlist tool names; never execute arbitrary Python from model text. Redact secrets and signed URLs. When a request times out, decide whether it was a read or a side effect before replaying. For a video tool, persist its request ID and use status polling instead of submitting again.
 
-The example uses model ID `gpt-6-sol` and endpoint family `/v1/responses`. The response is JSON; keep the returned request ID and redacted error body when diagnosing a failure. A timeout does not prove that a request was rejected, so do not submit a second request automatically.
+## Testing
 
-## Model facts
+python3 -m unittest discover -s tests runs no network request. Add adapter tests using a local fake response for parallel calls, malformed arguments, tool exceptions, and max-turn behavior. The sample fixture is not a benchmark and does not claim model quality.
 
-- Model ID: `gpt-6-sol`
-- Argolink model page: `https://argolink.io/gh-agent-tool-loop-guide` (tracked shortlink; destination is the model page)
-- Endpoint family: `/v1/responses`
-- Context: `1,050,000` tokens; max output: `128000` tokens.
-- Reasoning efforts: `low, medium, high, xhigh, max`; default: `medium`.
-- Listed token rates: input `$2` / output `$10` per million tokens; cached input `$0.2` when listed.
+## FAQ
 
-## Scope
-
-This repository has one clear search intent: **agent tool loop and response handling**. It keeps the integration boundary small enough for a developer or an AI assistant to answer a concrete question, while linking the live Argolink model page for changes.
-
-## Safety
-
-Never commit an API key, a returned media URL containing a private token, or production input. Examples are deliberately small and do not make a request during tests.
+**Why not loop forever?** A model can keep requesting tools after a malformed result. **Can calls run concurrently?** Only with a bounded executor and independent side effects. **Are Responses and chat interchangeable?** No; keep adapters separate. **Where is cost calculated?** Record usage from the final response and use a dated price table; do not infer it from turn count.
